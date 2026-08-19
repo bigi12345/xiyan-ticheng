@@ -96,6 +96,12 @@
     .action.ghost{background:var(--glass); color:var(--text); border:1px solid var(--panel-border);}
     .action:hover{transform:translateY(-1px); filter:brightness(1.08);}
     .action:active{transform:translateY(0);}
+    .action.sm{padding:7px 12px; font-size:12.5px; border-radius:9px;}
+    .action.params{background:linear-gradient(135deg,var(--purple),#b26bff); color:#fff; box-shadow:0 0 12px rgba(168,85,247,0.4);}
+    .toolbar-right{display:flex; align-items:center; justify-content:space-between; gap:12px; flex:1 1 100%; flex-wrap:wrap;}
+    .toolbar-btns{display:flex; gap:8px; flex-wrap:wrap;}
+    .rule-text{font-size:11.5px; color:var(--muted); line-height:1.7; flex:1 1 260px; min-width:0;}
+    .rule-text b{color:var(--cyan); font-weight:700;}
 
     /* ---------- LED Marquee ---------- */
     .led-bar{
@@ -145,6 +151,16 @@
     tbody td{padding:7px 8px; border-bottom:1px solid rgba(255,255,255,0.05); vertical-align:middle;}
     tbody tr:nth-child(odd){background:rgba(10,19,38,0.45);}
     tbody tr:nth-child(even){background:rgba(22,36,68,0.42);}
+    /* 按业务类型区分底色：同品类同色，一眼可辨 */
+    tbody tr.type-vip{background:rgba(168,85,247,0.17);}
+    tbody tr.type-banquet{background:rgba(255,95,162,0.15);}
+    tbody tr.type-room_book{background:rgba(0,240,255,0.12);}
+    tbody tr.type-room_order{background:rgba(66,153,255,0.14);}
+    tbody tr.type-hall_order{background:rgba(57,255,139,0.13);}
+    tbody tr.type-takeout{background:rgba(255,159,67,0.13);}
+    tbody tr.type-mahjong{background:rgba(255,110,199,0.16);}
+    tbody tr.type-juice{background:rgba(255,159,67,0.10);}
+    tbody tr.type-goldpig{background:rgba(255,210,63,0.14);}
     tbody tr:hover{background:rgba(0,240,255,0.08);}
     tbody tr.special{background:rgba(255,159,67,0.10);}
     tbody tr.special:nth-child(even){background:rgba(255,159,67,0.14);}
@@ -240,6 +256,17 @@
     .tag button{cursor:pointer; border:none; background:rgba(255,77,109,0.2); color:var(--red); border-radius:6px;
       width:20px; height:20px; font-size:12px; line-height:1;}
     .divider{height:1px; background:var(--panel-border); margin:20px 0;}
+
+    /* ---------- Params grid ---------- */
+    .params-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:12px;}
+    .pf{display:flex; align-items:center; gap:8px; background:var(--glass); border:1px solid var(--panel-border);
+      border-radius:11px; padding:9px 12px;}
+    .pf label{flex:1 1 auto; font-size:12px; color:var(--muted); line-height:1.5;}
+    .pf input{width:86px; flex:0 0 auto; background:#0a1326; color:var(--yellow); border:1px solid var(--panel-border);
+      border-radius:8px; padding:8px 9px; font-size:14px; font-weight:800; text-align:right; outline:none; font-variant-numeric:tabular-nums;}
+    .pf input:focus{border-color:var(--purple); box-shadow:0 0 0 2px rgba(168,85,247,0.2);}
+    .pf .unit{flex:0 0 auto; font-size:11px; color:var(--muted);}
+    @media (max-width:520px){ .params-grid{grid-template-columns:1fr;} }
 
     /* ---------- Toast ---------- */
     #toast{position:fixed; left:50%; bottom:34px; transform:translateX(-50%) translateY(20px);
@@ -372,8 +399,14 @@
       </div>
       <button class="action primary" onclick="addOrder()">＋ 新增订单</button>
       <button class="action ghost" onclick="openSettings()">⚙ 房号 / 员工管理</button>
-      <button class="action warn" onclick="exportData()">⬇ 导出 CSV</button>
-      <button class="action danger" onclick="showClearToday()">🗑️ 清空本日数据</button>
+      <div class="toolbar-right">
+        <div class="rule-text" id="ruleText"></div>
+        <div class="toolbar-btns">
+          <button class="action warn sm" onclick="exportData()">⬇ 导出</button>
+          <button class="action danger sm" onclick="showClearToday()">🗑️ 清空本日</button>
+          <button class="action params sm" onclick="showParamsModal()">🔧 提成参数</button>
+        </div>
+      </div>
     </div>
 
     <!-- Daily summary -->
@@ -501,6 +534,38 @@
     <div style="display:flex;gap:10px;margin-top:8px;">
       <button class="action danger" style="flex:1;" onclick="confirmClearToday()">确认清空</button>
       <button class="action ghost" onclick="closeClearModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== PARAMS MODAL（提成参数设置，密码保护） ===================== -->
+<div class="modal-mask" id="paramsModal">
+  <div class="modal">
+    <h3>🔧 提成参数设置 <button class="close" onclick="closeParamsModal()">×</button></h3>
+
+    <!-- 第一步：输入管理密码 -->
+    <div id="paramsLock">
+      <p style="font-size:13px;color:var(--muted);margin:0 0 14px;line-height:1.7;">
+        修改提成规则（比例 / 固定金额 / 子项提成）需要管理密码。
+      </p>
+      <div style="margin-bottom:6px;">
+        <label style="font-size:12px;color:var(--muted);">管理密码</label>
+        <input id="paramsPwd" type="password" placeholder="请输入密码" autocomplete="new-password" style="width:100%;margin-top:5px;background:#0a1326;color:var(--text);border:1px solid var(--panel-border);border-radius:9px;padding:10px 12px;font-size:14px;letter-spacing:3px;" onkeydown="if(event.key==='Enter')unlockParams()" />
+      </div>
+      <div id="paramsPwdErr" style="font-size:12.5px;color:#ff6b6b;min-height:16px;margin:6px 0;"></div>
+      <button class="action primary" style="width:100%;" onclick="unlockParams()">🔓 解锁编辑</button>
+    </div>
+
+    <!-- 第二步：编辑表单（解锁后显示） -->
+    <div id="paramsForm" style="display:none;">
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.7;">
+        修改后立即<b style="color:var(--yellow);">重算当天及所有已录入订单</b>的金额与提成，并同步云端。百分比按「%」填写。
+      </p>
+      <div class="params-grid" id="paramsFields"></div>
+      <div style="display:flex;gap:10px;margin-top:18px;">
+        <button class="action success" style="flex:1;" onclick="confirmParams()">✔ 保存并重算</button>
+        <button class="action ghost" onclick="closeParamsModal()">取消</button>
+      </div>
     </div>
   </div>
 </div>
@@ -792,6 +857,127 @@ function confirmClearToday(){
   toast('已清空 '+date+' 的本日数据');
 }
 
+/* ===== 提成参数修改（密码保护） ===== */
+const PARAMS_PASSWORD = '00008888';
+const PARAMS_KEY = 'xiyan_params_v1';
+
+// 页面加载时把本地保存的自定义提成参数应用回 TYPES（只覆盖存在的字段）
+function loadParams(){
+  try{
+    const raw = localStorage.getItem(PARAMS_KEY);
+    if(!raw) return;
+    const p = JSON.parse(raw);
+    if(!p || typeof p!=='object') return;
+    TYPES.forEach(t=>{
+      const v = p[t.key];
+      if(!v || typeof v!=='object') return;
+      if('rate' in v)  t.rate  = num(v.rate);
+      if('fixed' in v) t.fixed = num(v.fixed);
+      if(v.subCommission && typeof v.subCommission==='object'){
+        t.subCommission = Object.assign({}, t.subCommission, v.subCommission);
+      }
+    });
+  }catch(e){ console.warn('params load fail', e); }
+}
+
+// 当前参数快照（用于持久化）
+function paramsSnapshot(){
+  const s={};
+  TYPES.forEach(t=>{ s[t.key] = { rate:t.rate, fixed:t.fixed, subCommission:Object.assign({}, t.subCommission) }; });
+  return s;
+}
+
+function showParamsModal(){
+  $('paramsPwd').value='';
+  $('paramsPwdErr').textContent='';
+  $('paramsLock').style.display='block';
+  $('paramsForm').style.display='none';
+  $('paramsModal').classList.add('show');
+  setTimeout(()=>{ const el=$('paramsPwd'); if(el) el.focus(); }, 60);
+}
+function closeParamsModal(){ $('paramsModal').classList.remove('show'); }
+
+function unlockParams(){
+  const pwd = ($('paramsPwd').value||'').trim();
+  if(pwd !== PARAMS_PASSWORD){
+    $('paramsPwdErr').textContent='密码错误，无法修改提成参数！';
+    $('paramsPwd').value='';
+    return;
+  }
+  $('paramsPwdErr').textContent='';
+  renderParamsFields();
+  $('paramsLock').style.display='none';
+  $('paramsForm').style.display='block';
+}
+
+// 按当前 TYPES 生成编辑表单（数值随配置实时显示）
+function renderParamsFields(){
+  const items=[];
+  TYPES.forEach(t=>{
+    if(t.mode==='percent'){
+      items.push(`<div class="pf"><label>${escapeHtml(t.label)} 提成比例</label><input type="number" min="0" max="100" step="0.1" id="pp_${t.key}" value="${round2(t.rate*100)}" /><span class="unit">%</span></div>`);
+    }else if(t.mode==='fixed'){
+      items.push(`<div class="pf"><label>${escapeHtml(t.label)} 固定提成</label><input type="number" min="0" step="0.01" id="pp_${t.key}" value="${t.fixed}" /><span class="unit">元</span></div>`);
+    }else if(t.mode==='juice'){
+      items.push(`<div class="pf"><label>${escapeHtml(t.label)} · 每杯</label><input type="number" min="0" step="0.01" id="pp_juice_杯" value="${t.subCommission['杯']}" /><span class="unit">元</span></div>`);
+      items.push(`<div class="pf"><label>${escapeHtml(t.label)} · 每扎</label><input type="number" min="0" step="0.01" id="pp_juice_扎" value="${t.subCommission['扎']}" /><span class="unit">元</span></div>`);
+    }else if(t.mode==='goldpig'){
+      items.push(`<div class="pf"><label>${escapeHtml(t.label)} · 每只</label><input type="number" min="0" step="0.01" id="pp_${t.key}" value="${t.fixed}" /><span class="unit">元</span></div>`);
+    }else if(t.mode==='mahjong'){
+      t.sub.forEach(s=>{
+        items.push(`<div class="pf"><label>${escapeHtml(t.label)} · ${s}元/时</label><input type="number" min="0" step="0.01" id="pp_mahjong_${s}" value="${t.subCommission[s]}" /><span class="unit">元/时</span></div>`);
+      });
+    }
+  });
+  $('paramsFields').innerHTML = items.join('');
+}
+
+// 读取表单 → 更新 TYPES → 持久化 → 重算全部订单 → 同步
+function confirmParams(){
+  TYPES.forEach(t=>{
+    if(t.mode==='percent'){
+      const el=$('pp_'+t.key); if(el) t.rate = round2(num(el.value)/100);
+    }else if(t.mode==='fixed'){
+      const el=$('pp_'+t.key); if(el) t.fixed = round2(num(el.value));
+    }else if(t.mode==='juice'){
+      const a=$('pp_juice_杯'); if(a) t.subCommission['杯']=round2(num(a.value));
+      const b=$('pp_juice_扎'); if(b) t.subCommission['扎']=round2(num(b.value));
+    }else if(t.mode==='goldpig'){
+      const el=$('pp_'+t.key); if(el) t.fixed = round2(num(el.value));
+    }else if(t.mode==='mahjong'){
+      t.sub.forEach(s=>{ const el=$('pp_mahjong_'+s); if(el) t.subCommission[s]=round2(num(el.value)); });
+    }
+  });
+  try{ localStorage.setItem(PARAMS_KEY, JSON.stringify(paramsSnapshot())); }catch(e){}
+  // 重算所有已录入订单（空白待选行跳过）
+  // 注意：按比例类型（会员充值/宴会围餐/各点菜）保留用户输入的消费金额，只重算提成分配；
+  //       固定/子项类型（包间/饮料/金猪/麻将）金额由规则决定，重新生成金额。
+  state.orders.forEach(o=>{
+    if(!o.type || o.type==='') return;
+    if(typeConfig(o.type).mode !== 'percent') o.amount = computeAmount(o);
+    reallocate(o);
+  });
+  saveState();
+  closeParamsModal();
+  updateRuleText();
+  renderHome(); renderSummary();
+  toast('提成参数已更新，全部订单已重算并同步');
+}
+
+// 工具栏右侧规则文字：随当前数值自动显示
+function updateRuleText(){
+  const el = $('ruleText'); if(!el) return;
+  const parts = TYPES.map(t=>{
+    if(t.mode==='percent') return t.label + round2(t.rate*100) + '%';
+    if(t.mode==='fixed')   return t.label + t.fixed + '元';
+    if(t.mode==='juice')   return t.label + '(杯' + t.subCommission['杯'] + '元/扎' + t.subCommission['扎'] + '元)';
+    if(t.mode==='goldpig') return t.label + t.fixed + '元/只';
+    if(t.mode==='mahjong') return t.label + '(' + t.sub.map(s=>s+'→'+t.subCommission[s]).join(',') + '元/时)';
+    return t.label;
+  });
+  el.innerHTML = '当前规则：<b>' + parts.join('</b> · <b>') + '</b>';
+}
+
 function updateOrder(id, field, value){
   const order = state.orders.find(o=>o.id===id);
   if(!order) return;
@@ -913,6 +1099,7 @@ function renderHome(){
   dayOrders.forEach((order, localIdx)=>{
     const tr = document.createElement('tr');
     tr.dataset.id = order.id;
+    if(order.type) tr.classList.add('type-'+order.type);
     if(order.type==='juice' || order.type==='goldpig') tr.classList.add('special');
 
     // 子菜单（饮料/金猪 / 打麻将含「单价+小时」两个下拉）
@@ -1312,6 +1499,8 @@ setInterval(refreshLedText, 20000);
 /* ===================== 初始化 ===================== */
 function init(){
   loadState();
+  loadParams();           // 应用本地保存的自定义提成参数
+  updateRuleText();       // 工具栏右侧规则文字
 
   const today = new Date().toISOString().slice(0,10);
   $('datePicker').value = state.currentDate || today;
