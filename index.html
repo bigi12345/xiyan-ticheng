@@ -487,6 +487,13 @@ const TYPES = [
 ];
 function typeConfig(key){ return TYPES.find(t=>t.key===key) || TYPES[0]; }
 function isFixed(key){ return typeConfig(key).mode !== 'percent'; }
+function mahjongParts(order){
+  // 打麻将 subtype 编码为「单价|小时」，如 "30|5" 表示 30元/时 × 5小时
+  const p = String(order.subtype||'30|1').split('|');
+  const price = num(p[0]) || 30;
+  const hours = Math.min(24, Math.max(1, num(p[1]) || 1));
+  return { price, hours };
+}
 
 /* ===================== 卡通头像（人物角色，非动物） ===================== */
 const AVATARS = ['🧑','👩','🧑‍🍳','👨','👩‍🦰','🧑‍🎤','👨‍🔧','🧓','👩‍💼','🧑‍💻','🧔','👱'];
@@ -517,7 +524,7 @@ let selectedEmp = null;
 /* ===================== 云端同步（Supabase） ===================== */
 // 内置密钥：直接用你提供的 publishable key 自动连接，无需在首页手动配置
 // ⚠️ 安全：只放 publishable（公开）密钥；secret 密钥绝不能写进网页（否则任何人可读、可改数据库）
-const SUPABASE_URL  = 'https://1wDn0Rdb66tEQLKZKb4DQ.supabase.co';
+const SUPABASE_URL  = 'https://opbjdgnnlykubaazkvmb.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_1wD_n0Rdb66tEQLKZKb4DQ_s4fo1rKO';
 const CLOUD_KEY = 'xiyan_cloud_v1';
 let cloud = null;          // supabase client
@@ -568,8 +575,9 @@ async function loadFromCloud(){
     const { data:sdata, error:serr } = await cloud.from('settings').select('*').eq('id',1).maybeSingle();
     if(serr) throw serr;
     if(sdata){
-      if(Array.isArray(sdata.rooms)) state.rooms = sdata.rooms;
-      if(Array.isArray(sdata.employees)) state.employees = sdata.employees;
+      // 保护：云端若是空数组/残缺，不要覆盖本地默认房间与员工配置（避免被清成空白）
+      if(Array.isArray(sdata.rooms) && sdata.rooms.length) state.rooms = sdata.rooms;
+      if(Array.isArray(sdata.employees) && sdata.employees.length) state.employees = sdata.employees;
     }
     const { data:odata, error:oerr } = await cloud.from('orders').select('*').order('seq',{ascending:true});
     if(oerr) throw oerr;
@@ -656,8 +664,14 @@ function computeCommission(order){
   if(cfg.mode==='fixed')   return round2(cfg.fixed);
   if(cfg.mode==='juice')   return round2(cfg.subCommission[order.subtype] || 0);
   if(cfg.mode==='goldpig') return round2(cfg.fixed * (num(order.subtype)||1));
-  if(cfg.mode==='mahjong') return round2(cfg.subCommission[num(order.subtype)] || 0);
+  if(cfg.mode==='mahjong'){ const {price,hours}=mahjongParts(order); return round2((cfg.subCommission[price]||0)*hours); }
   return 0;
+}
+
+/* 消费金额：打麻将=单价×小时；其余固定类型沿用提成额 */
+function computeAmount(order){
+  if(order.type==='mahjong'){ const {price,hours}=mahjongParts(order); return round2(price*hours); }
+  return computeCommission(order);
 }
 
 /* 自动把总提成分配到员工1/员工2（2人均分；饮料强制双人） */
@@ -749,7 +763,7 @@ function updateOrder(id, field, value){
     // 切换类型时，固定类型自动填金额；比例类型清空金额待用户输入
     if(isFixed(value)){
       order.subtype = defaultSubtype(value);
-      order.amount = computeCommission(order);
+      order.amount = computeAmount(order);
     }else{
       order.subtype='';
       order.amount=0; // 比例类需用户重新输入金额
@@ -760,7 +774,7 @@ function updateOrder(id, field, value){
   }
   if(field==='subtype'){
     order.subtype = value;
-    if(isFixed(order.type)) order.amount = computeCommission(order);
+    if(isFixed(order.type)) order.amount = computeAmount(order);
     reallocate(order);
     saveState(); renderHome(); return;   // 整行重绘，立即弹出对应条件下拉菜单
   }
@@ -790,6 +804,18 @@ function updateOrder(id, field, value){
   }
 }
 
+/* 打麻将专用：单价或小时任一变动，都重新计算金额与提成 */
+function updateMahjong(id, field, value){
+  const order = state.orders.find(o=>o.id===id); if(!order) return;
+  const { price, hours } = mahjongParts(order);
+  const np = field==='price' ? num(value) : price;
+  const nh = field==='hours' ? Math.min(24, Math.max(1, num(value)||1)) : hours;
+  order.subtype = np + '|' + nh;
+  order.amount = computeAmount(order);
+  reallocate(order);
+  saveState(); renderHome();
+}
+
 /* 仅刷新某一行的提成输入框与人数，避免整行重绘导致输入框失焦 */
 function refreshRowCommission(order){
   const tr = Array.from(document.querySelectorAll('#ordersBody tr')).find(r=>r.dataset.id===order.id);
@@ -806,7 +832,7 @@ function defaultSubtype(type){
   const cfg = typeConfig(type);
   if(cfg.mode==='juice') return '杯';
   if(cfg.mode==='goldpig') return '1';
-  if(cfg.mode==='mahjong') return '30';
+  if(cfg.mode==='mahjong') return '30|1';
   return '';
 }
 
@@ -826,7 +852,7 @@ function employeeOptions(selected){
 }
 function subtypeOptions(order){
   const cfg = typeConfig(order.type);
-  if(cfg.mode==='juice' || cfg.mode==='mahjong'){
+  if(cfg.mode==='juice'){
     return cfg.sub.map(s=>`<option value="${s}" ${String(s)===String(order.subtype)?'selected':''}>${cfg.mode==='juice'?(s==='杯'?'杯 / 2元':'扎 / 4元'):(s+'元/小时')}</option>`).join('');
   }
   if(cfg.mode==='goldpig'){
@@ -851,9 +877,15 @@ function renderHome(){
     tr.dataset.id = order.id;
     if(order.type==='juice' || order.type==='goldpig') tr.classList.add('special');
 
-    // 子菜单（饮料/金猪/麻将）
+    // 子菜单（饮料/金猪 / 打麻将含「单价+小时」两个下拉）
     let subHtml='';
-    if(['juice','goldpig','mahjong'].includes(order.type)){
+    if(order.type==='mahjong'){
+      const cfg = typeConfig(order.type);
+      const { price, hours } = mahjongParts(order);
+      const priceOpts = cfg.sub.map(s=>`<option value="${s}" ${s===price?'selected':''}>${s}元/小时</option>`).join('');
+      let hourOpts=''; for(let i=1;i<=24;i++) hourOpts+=`<option value="${i}" ${i===hours?'selected':''}>${i} 小时</option>`;
+      subHtml = `<div class="sub-inline"><select onchange="updateMahjong('${order.id}','price',this.value)">${priceOpts}</select><select onchange="updateMahjong('${order.id}','hours',this.value)">${hourOpts}</select></div>`;
+    }else if(['juice','goldpig'].includes(order.type)){
       subHtml = `<div class="sub-inline"><select onchange="updateOrder('${order.id}','subtype',this.value)">${subtypeOptions(order)}</select></div>`;
     }
 
@@ -866,7 +898,8 @@ function renderHome(){
     }else if(order.type==='goldpig'){
       roomCell = `<span class="badge goldpig">🐷 金猪</span>`;
     }else if(order.type==='mahjong'){
-      roomCell = `<span class="badge mahjong">🀄 麻将房</span>`;
+      const { hours } = mahjongParts(order);
+      roomCell = `<span class="badge mahjong">🀄 麻将房 ${hours}小时</span>`;
     }else{
       roomCell = `<select onchange="updateOrder('${order.id}','room',this.value)">${roomOptions(order.room)}</select>`;
     }
@@ -1149,7 +1182,7 @@ function formatRoomText(o){
   if(o.type==='takeout') return '外卖订单';
   if(o.type==='juice') return '手作鲜榨饮料-'+(o.subtype==='扎'?'扎/4元':'杯/2元');
   if(o.type==='goldpig') return '金猪-'+(o.subtype||'1')+'只';
-  if(o.type==='mahjong') return '麻将房-'+(o.subtype||'')+'元/时';
+  if(o.type==='mahjong'){ const {price,hours}=mahjongParts(o); return '麻将房-'+price+'元/时×'+hours+'小时'; }
   return o.room||'';
 }
 function exportData(){
