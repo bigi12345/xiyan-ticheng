@@ -309,8 +309,8 @@
     <div class="hud">
       <div class="pill"><span class="ico">🕒</span><span id="clock">--</span></div>
       <div class="pill"><span class="ico" id="weatherIco">🌤️</span><span id="weather">加载中…</span></div>
-      <div class="pill" id="cloudPill" style="cursor:pointer;" onclick="openCloudSetup()" title="点击连接 / 查看云端同步状态">
-        <span class="ico" id="cloudIco">💾</span><span id="cloudText">本地模式</span>
+      <div class="pill" id="cloudPill" style="cursor:pointer;" onclick="openCloudSetup()" title="云端同步状态（点击可重新配置）">
+        <span class="ico" id="cloudIco">🔄</span><span id="cloudText">连接中…</span>
       </div>
     </div>
   </header>
@@ -488,8 +488,8 @@ const TYPES = [
 function typeConfig(key){ return TYPES.find(t=>t.key===key) || TYPES[0]; }
 function isFixed(key){ return typeConfig(key).mode !== 'percent'; }
 
-/* ===================== 卡通头像 ===================== */
-const AVATARS = ['🦊','🐱','🐶','🐰','🐼','🐯','🐸','🐵','🦁','🐨','🐷','🐔','🐧','🐥'];
+/* ===================== 卡通头像（人物角色，非动物） ===================== */
+const AVATARS = ['🧑','👩','🧑‍🍳','👨','👩‍🦰','🧑‍🎤','👨‍🔧','🧓','👩‍💼','🧑‍💻','🧔','👱'];
 function avatarFor(name){
   const i = state.employees.indexOf(name);
   return AVATARS[(i<0?0:i) % AVATARS.length];
@@ -515,6 +515,10 @@ let state = {
 let selectedEmp = null;
 
 /* ===================== 云端同步（Supabase） ===================== */
+// 内置密钥：直接用你提供的 publishable key 自动连接，无需在首页手动配置
+// ⚠️ 安全：只放 publishable（公开）密钥；secret 密钥绝不能写进网页（否则任何人可读、可改数据库）
+const SUPABASE_URL  = 'https://1wDn0Rdb66tEQLKZKb4DQ.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_1wD_n0Rdb66tEQLKZKb4DQ_s4fo1rKO';
 const CLOUD_KEY = 'xiyan_cloud_v1';
 let cloud = null;          // supabase client
 let cloudEnabled = false;
@@ -535,10 +539,10 @@ function setCloudConfig(cfg){ try{ localStorage.setItem(CLOUD_KEY, JSON.stringif
 
 function updateCloudBadge(ok, fail){
   const ico=$('cloudIco'), txt=$('cloudText');
-  if(!cloudEnabled){ ico.textContent='💾'; txt.textContent='本地模式'; return; }
-  if(fail){ ico.textContent='⚠️'; txt.textContent='云端异常'; }
-  else if(ok){ ico.textContent='☁️'; txt.textContent='云端已连接'; }
-  else { ico.textContent='🔄'; txt.textContent='连接中…'; }
+  if(!cloudEnabled){ ico.textContent='⚠️'; txt.textContent='同步未连接'; return; }
+  if(fail){ ico.textContent='⚠️'; txt.textContent='同步未连接'; }
+  else if(ok){ ico.textContent='☁️'; txt.textContent='云端已同步'; }
+  else { ico.textContent='🔄'; txt.textContent='同步中…'; }
 }
 
 function initCloudFromConfig(){
@@ -579,8 +583,7 @@ async function loadFromCloud(){
     const firstLoad = !cloudReady;
     cloudReady = true;
     if(firstLoad){
-      // 首次连接：把当前本地数据（或空库时的示例）推送到云端建库
-      if(state.orders.length===0) state.orders = generateDemoData();
+      // 首次连接：把当前本地数据推送到云端建库（空白待选行也会同步，便于多端共用同一份空白表单）
       saveToCloud();
     }
     updateCloudBadge(true);
@@ -632,6 +635,8 @@ function round2(n){ return Math.round((Number(n)+Number.EPSILON)*100)/100; }
 function money(n){ return '¥' + (Number(n)||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function escapeAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escapeHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// 仅「已选类型且金额>0」的订单计入统计（空白待选行不计入）
+function isRealOrder(o){ return !!(o && o.type && o.type!=='' && num(o.amount)>0); }
 function getCurrentDate(){ return $('datePicker').value || state.currentDate; }
 function getCurrentMonth(){ return ($('monthPicker').value || '2026-08'); }
 function getTypeLabel(key){ return typeConfig(key).label; }
@@ -645,6 +650,7 @@ function toast(msg){
 
 /* ===================== 提成计算 ===================== */
 function computeCommission(order){
+  if(!order.type || order.type==='') return 0;   // 待选（空白）行不计提成
   const cfg = typeConfig(order.type);
   if(cfg.mode==='percent') return round2(num(order.amount) * cfg.rate);
   if(cfg.mode==='fixed')   return round2(cfg.fixed);
@@ -806,7 +812,7 @@ function defaultSubtype(type){
 
 /* ===================== 下拉选项 ===================== */
 function typeOptions(selected){
-  return TYPES.map(t=>`<option value="${t.key}" ${t.key===selected?'selected':''}>${escapeHtml(t.label)}</option>`).join('');
+  return `<option value="">— 请选择 —</option>` + TYPES.map(t=>`<option value="${t.key}" ${t.key===selected?'selected':''}>${escapeHtml(t.label)}</option>`).join('');
 }
 function roomOptions(selected){
   let html='<option value="">--选择--</option>';
@@ -835,15 +841,10 @@ function subtypeOptions(order){
 function renderHome(){
   const date = getCurrentDate();
   $('currentDate').textContent = date;
+  ensureTemplateRows(date);   // 保证当天默认显示 10 条空白待选行
   const tbody = $('ordersBody');
   const dayOrders = state.orders.filter(o=>o.date===date).sort((a,b)=>(a.seq||0)-(b.seq||0));
   tbody.innerHTML='';
-
-  if(dayOrders.length===0){
-    tbody.innerHTML = `<tr><td colspan="11" class="empty">暂无 ${date} 订单，点击左上角「＋ 新增订单」开始登记</td></tr>`;
-    renderHomeSummary();
-    return;
-  }
 
   dayOrders.forEach((order, localIdx)=>{
     const tr = document.createElement('tr');
@@ -856,13 +857,12 @@ function renderHome(){
       subHtml = `<div class="sub-inline"><select onchange="updateOrder('${order.id}','subtype',this.value)">${subtypeOptions(order)}</select></div>`;
     }
 
-    // 桌号/包厢单元格
+    // 桌号/包厢单元格：外卖固定「外卖订单N」；麻将为「麻将房」；金猪为「金猪」；
+    // 其余（含手作鲜榨饮料、预定包间、大厅/包间点菜、会员充值、宴会等）均可选择桌号/包厢，便于识别对应消费
     let roomCell='';
     const takeoutIdx = dayOrders.filter(o=>o.type==='takeout').indexOf(order);
     if(order.type==='takeout'){
       roomCell = `<span class="badge takeout">外卖订单${takeoutIdx+1}</span>`;
-    }else if(order.type==='juice'){
-      roomCell = `<span class="badge juice">🥤 手作鲜榨饮料</span>`;
     }else if(order.type==='goldpig'){
       roomCell = `<span class="badge goldpig">🐷 金猪</span>`;
     }else if(order.type==='mahjong'){
@@ -872,7 +872,8 @@ function renderHome(){
     }
 
     const namedCount = (order.commissions[0].name?1:0)+(order.commissions[1].name?1:0);
-    const emp2Disabled = (order.type==='room_book') || !order.commissions[1].name;
+    // 仅「预定包间」强制 1 人（员工2 禁用）；其余类型员工2 均可自由选择，选了即人数=2、提成均分
+    const emp2Disabled = (order.type==='room_book');
     const amountDisabled = isFixed(order.type) ? 'disabled' : '';
 
     tr.innerHTML = `
@@ -885,7 +886,7 @@ function renderHome(){
       </td>
       <td data-label="桌号/包厢">${roomCell}</td>
       <td data-label="客户姓名"><input type="text" placeholder="选填" value="${escapeAttr(order.customer)}" onchange="updateOrder('${order.id}','customer',this.value)" /></td>
-      <td data-label="消费金额"><input type="number" min="0" step="0.01" value="${order.amount}" ${amountDisabled} oninput="updateOrder('${order.id}','amount',this.value)" /></td>
+      <td data-label="消费金额"><input type="number" min="0" step="0.01" value="${order.amount?order.amount:''}" ${amountDisabled} oninput="updateOrder('${order.id}','amount',this.value)" /></td>
       <td data-label="员工1"><select onchange="updateOrder('${order.id}','emp_0',this.value)">${employeeOptions(order.commissions[0].name)}</select></td>
       <td data-label="提成1"><input type="number" min="0" step="0.01" value="${order.commissions[0].amount}" data-role="amt0" onchange="updateOrder('${order.id}','amt_0',this.value)" /></td>
       <td data-label="员工2"><select onchange="updateOrder('${order.id}','emp_1',this.value)" ${emp2Disabled?'disabled':''} ${emp2Disabled?'':'style="border-color:var(--purple);"'}>${employeeOptions(order.commissions[1].name)}</select></td>
@@ -899,10 +900,28 @@ function renderHome(){
   renderHomeSummary();
 }
 
+// 保证当天至少有 10 条空白待选行（序号连续）；真实订单超过 10 条则如实显示
+function ensureTemplateRows(date){
+  const dayOrders = state.orders.filter(o=>o.date===date);
+  const need = 10 - dayOrders.length;
+  if(need>0){
+    let maxSeq = state.orders.reduce((m,o)=>Math.max(m,(o.seq||0)),0);
+    for(let i=0;i<need;i++){
+      maxSeq++;
+      state.orders.push({
+        id:'ord_'+Date.now()+'_'+Math.floor(Math.random()*100000)+'_'+i,
+        date, type:'', subtype:'', room: state.rooms[0]||'', customer:'', amount:0, seq:maxSeq,
+        commissions:[{name:'',amount:0},{name:'',amount:0}]
+      });
+    }
+    saveState();
+  }
+}
+
 /* ===================== 首页汇总 ===================== */
 function renderHomeSummary(){
   const date = getCurrentDate();
-  const dayOrders = state.orders.filter(o=>o.date===date);
+  const dayOrders = state.orders.filter(o=>o.date===date && isRealOrder(o));
   const revenue = dayOrders.reduce((s,o)=>s+num(o.amount),0);
   const commission = dayOrders.reduce((s,o)=>s+o.commissions.reduce((ss,c)=>ss+num(c.amount),0),0);
   $('dayRevenue').textContent = money(revenue);
@@ -976,7 +995,7 @@ function renderSummary(){
 
   const empTotals = {};
   const empCounts = {};
-  state.orders.filter(o=>o.date.startsWith(month)).forEach(o=>o.commissions.forEach(c=>{
+  state.orders.filter(o=>o.date.startsWith(month) && isRealOrder(o)).forEach(o=>o.commissions.forEach(c=>{
     if(c.name){
       empTotals[c.name]=(empTotals[c.name]||0)+num(c.amount);
       empCounts[c.name]=(empCounts[c.name]||0)+1;
@@ -1136,7 +1155,7 @@ function formatRoomText(o){
 function exportData(){
   const month = getCurrentMonth();
   const rows = [['序号','日期','类型','桌号/包厢','客户姓名','消费金额','员工1','提成1','员工2','提成2']];
-  state.orders.filter(o=>o.date.startsWith(month)).sort((a,b)=>a.date.localeCompare(b.date)||(a.seq||0)-(b.seq||0)).forEach((o,i)=>{
+  state.orders.filter(o=>o.date.startsWith(month) && isRealOrder(o)).sort((a,b)=>a.date.localeCompare(b.date)||(a.seq||0)-(b.seq||0)).forEach((o,i)=>{
     rows.push([
       i+1, o.date, getTypeLabel(o.type), formatRoomText(o),
       o.customer||'', o.amount,
@@ -1179,34 +1198,7 @@ function loadWeather(){
   }).catch(()=>{ $('weatherIco').textContent='🌤️'; $('weather').textContent='广州 26°C'; });
 }
 
-/* ===================== 示例数据 ===================== */
-function generateDemoData(){
-  const date='2026-08-18';
-  const E=state.employees;
-  const raw=[
-    {type:'vip',        room:'大厅1号桌', amount:5000, people:1, emp:[E[0]]},
-    {type:'banquet',    room:'熹宴房',     amount:8000, people:2, emp:[E[1],E[2]]},
-    {type:'room_book',  room:'鸿运房',     amount:5,    people:1, emp:[E[3]]},
-    {type:'room_order', room:'如意房',     amount:1200, people:1, emp:[E[0]]},
-    {type:'hall_order', room:'大厅3号桌',  amount:600,  people:1, emp:[E[4]]},
-    {type:'takeout',    room:'',           amount:88,   people:1, emp:[E[2]]},
-    {type:'juice',      subtype:'扎',      amount:4,    people:2, emp:[E[1],E[3]]},
-    {type:'goldpig',    subtype:'3',       amount:60,   people:1, emp:[E[4]]},
-    {type:'mahjong',    subtype:'48',      amount:48,   people:2, emp:[E[0],E[2]]},
-  ];
-  let seq=1;
-  return raw.map((r,i)=>{
-    const order={
-      id:'demo_'+i, date, type:r.type, subtype:r.subtype||defaultSubtype(r.type),
-      room:r.room||'', customer: i%3===0?'王先生':'', amount:r.amount,
-      commissions:[{name:r.emp[0]||'',amount:0},{name:r.emp[1]||'',amount:0}]
-    };
-    if(isFixed(r.type)) order.amount=computeCommission(order);
-    reallocate(order);
-    order.seq=seq++;
-    return order;
-  });
-}
+/* ===================== 示例数据（已停用，改为默认 10 条空白待选行） ===================== */
 
 /* ===================== 初始化 ===================== */
 function init(){
@@ -1219,10 +1211,10 @@ function init(){
   $('datePicker').addEventListener('change', e=>{ state.currentDate=e.target.value; $('currentDate').textContent=e.target.value; renderHome(); });
   $('monthPicker').addEventListener('change', ()=> renderSummary());
 
-  // 先本地渲染（首屏不空白）；若已配置云端则在后台拉取并覆盖
-  if(state.orders.length===0) state.orders = generateDemoData();
-  renderHome();
+  renderHome();   // 首屏先渲染（含当天 10 条空白待选行）
 
+  // 用内置密钥自动连接云端，多端共享同一份实时数据，无需在首页手动配置
+  setCloudConfig({ url: SUPABASE_URL, anonKey: SUPABASE_ANON });
   initCloudFromConfig();
 
   tickClock(); setInterval(tickClock,1000);
