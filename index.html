@@ -97,6 +97,35 @@
     .action:hover{transform:translateY(-1px); filter:brightness(1.08);}
     .action:active{transform:translateY(0);}
 
+    /* ---------- LED Marquee ---------- */
+    .led-bar{
+      display:flex; align-items:center; gap:10px;
+      padding:10px 14px; margin-bottom:14px; border-radius:14px;
+      background:#0a0a0a; border:1px solid #333; box-shadow:0 0 20px rgba(255,0,0,0.12) inset;
+      overflow:hidden; cursor:pointer; user-select:none;
+    }
+    .led-label{
+      flex:0 0 auto; font-size:12px; font-weight:800; color:#ff2a2a;
+      background:#1a0505; border:1px solid #4a1010; border-radius:8px;
+      padding:5px 10px; letter-spacing:1px; text-shadow:0 0 8px #ff0000;
+    }
+    .led-wrap{flex:1 1 auto; overflow:hidden; position:relative; mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent); -webkit-mask-image:linear-gradient(90deg,transparent,#000 8%,#000 92%,transparent);}
+    .led-text{
+      display:inline-block; white-space:nowrap;
+      font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+      font-size:16px; font-weight:700; color:#ff3333;
+      text-shadow:0 0 6px #ff0000,0 0 12px #ff4444;
+      padding-left:100%; animation:ledScroll 16s linear infinite;
+    }
+    .led-bar:hover .led-text{animation-play-state:paused;}
+    @keyframes ledScroll{
+      0%{transform:translateX(0);}
+      100%{transform:translateX(-100%);}
+    }
+    @media (max-width:768px){
+      .led-text{font-size:14px; animation-duration:12s;}
+    }
+
     /* ---------- Panels ---------- */
     .panel{
       background:var(--panel); border:1px solid var(--panel-border); border-radius:16px;
@@ -114,8 +143,11 @@
       border-bottom:1px solid var(--panel-border); white-space:nowrap; letter-spacing:.5px;
     }
     tbody td{padding:7px 8px; border-bottom:1px solid rgba(255,255,255,0.05); vertical-align:middle;}
-    tbody tr:hover{background:rgba(0,240,255,0.04);}
-    tbody tr.special{background:rgba(255,159,67,0.06);}
+    tbody tr:nth-child(odd){background:rgba(10,19,38,0.45);}
+    tbody tr:nth-child(even){background:rgba(22,36,68,0.42);}
+    tbody tr:hover{background:rgba(0,240,255,0.08);}
+    tbody tr.special{background:rgba(255,159,67,0.10);}
+    tbody tr.special:nth-child(even){background:rgba(255,159,67,0.14);}
     td input, td select{
       width:100%; background:#0a1326; color:var(--text); border:1px solid rgba(0,240,255,0.18);
       border-radius:8px; padding:7px 7px; font-size:12.5px; outline:none; transition:.15s;
@@ -295,7 +327,7 @@
     }
   </style>
 </head>
-<body>
+<body autocomplete="off" autocorrect="off" autocapitalize="off">
 <div class="wrap">
   <!-- ===================== HEADER ===================== -->
   <header>
@@ -323,19 +355,40 @@
 
   <!-- ===================== HOME VIEW ===================== -->
   <div id="homeView">
+    <!-- LED 牛马鸡血弹幕 -->
+    <div class="led-bar" onclick="refreshLedText()" title="点击换一条">
+      <div class="led-label">💬 LED</div>
+      <div class="led-wrap"><div class="led-text" id="ledText">正在加载鸡血弹幕…</div></div>
+    </div>
+
     <div class="toolbar">
       <div class="group">
         <label>统计月份</label>
-        <input type="month" id="monthPicker" value="2026-08" />
+        <input type="month" id="monthPicker" value="2026-08" autocomplete="off" />
       </div>
       <div class="group">
         <label>当前登记日期</label>
-        <input type="date" id="datePicker" />
+        <input type="date" id="datePicker" autocomplete="off" />
       </div>
       <button class="action primary" onclick="addOrder()">＋ 新增订单</button>
       <button class="action ghost" onclick="openSettings()">⚙ 房号 / 员工管理</button>
       <button class="action warn" onclick="exportData()">⬇ 导出 CSV</button>
       <button class="action danger" onclick="showClearToday()">🗑️ 清空本日数据</button>
+    </div>
+
+    <!-- Daily summary -->
+    <div class="panel">
+      <h2><span class="bar"></span>当日汇总 <span style="font-size:12px;color:var(--muted);font-weight:400;">（黄色为关键数据，可直接作工资核算依据）</span></h2>
+      <div class="summary-grid">
+        <div class="kpi"><div class="lab">当日金额总计</div><div class="val" id="dayRevenue">¥0.00</div></div>
+        <div class="kpi"><div class="lab">当日提成总计</div><div class="val" id="dayCommission">¥0.00</div></div>
+        <div class="kpi"><div class="lab">订单笔数</div><div class="val" id="orderCount">0 <small>单</small></div></div>
+      </div>
+
+      <div style="font-size:13px;color:var(--muted);margin:4px 0 8px;">每位员工当日提成合计</div>
+      <div class="emp-cards" id="employeeDaySummary"></div>
+
+      <div class="warn-box hidden" id="unassignedWarn"></div>
     </div>
 
     <div class="panel">
@@ -362,25 +415,10 @@
       </div>
     </div>
 
-    <!-- Daily summary -->
+    <!-- Ranking board -->
     <div class="panel">
-      <h2><span class="bar"></span>当日汇总 <span style="font-size:12px;color:var(--muted);font-weight:400;">（黄色为关键数据，可直接作工资核算依据）</span></h2>
-      <div class="summary-grid">
-        <div class="kpi"><div class="lab">当日金额总计</div><div class="val" id="dayRevenue">¥0.00</div></div>
-        <div class="kpi"><div class="lab">当日提成总计</div><div class="val" id="dayCommission">¥0.00</div></div>
-        <div class="kpi"><div class="lab">订单笔数</div><div class="val" id="orderCount">0 <small>单</small></div></div>
-      </div>
-
-      <div style="font-size:13px;color:var(--muted);margin:4px 0 8px;">每位员工当日提成合计</div>
-      <div class="emp-cards" id="employeeDaySummary"></div>
-
-      <div class="warn-box hidden" id="unassignedWarn"></div>
-
-      <!-- Ranking board -->
-      <div class="rank-board">
-        <div class="rank-title">🏆 本日提成排行榜 <span style="font-size:12px;color:var(--muted);font-weight:400;">（每个伙伴都有专属卡通形象）</span></div>
-        <div class="rank-list" id="rankList"></div>
-      </div>
+      <div class="rank-title">🏆 本日提成排行榜 <span style="font-size:12px;color:var(--muted);font-weight:400;">（每个伙伴都有专属卡通形象）</span></div>
+      <div class="rank-list" id="rankList"></div>
     </div>
   </div>
 
@@ -407,7 +445,7 @@
   <div class="modal">
     <h3>房号 / 员工管理 <button class="close" onclick="closeSettings()">×</button></h3>
     <div class="add-row">
-      <input id="newRoom" placeholder="输入房号 / 桌号，如：鸿运房、大厅21号桌" />
+      <input id="newRoom" placeholder="输入房号 / 桌号，如：鸿运房、大厅21号桌" autocomplete="off" />
       <button class="action primary" onclick="addRoom()">＋ 增加房号</button>
     </div>
     <div style="margin-bottom:6px;font-size:12.5px;color:var(--muted);">已有房号 / 桌号</div>
@@ -416,7 +454,7 @@
     <div class="divider"></div>
 
     <div class="add-row">
-      <input id="newEmployee" placeholder="输入员工姓名" />
+      <input id="newEmployee" placeholder="输入员工姓名" autocomplete="off" />
       <button class="action primary" onclick="addEmployee()">＋ 增加员工</button>
     </div>
     <div style="margin-bottom:6px;font-size:12.5px;color:var(--muted);">已录员工</div>
@@ -434,11 +472,11 @@
     </p>
     <div style="margin-bottom:12px;">
       <label style="font-size:12px;color:var(--muted);">Project URL（以 https:// 开头）</label>
-      <input id="cloudUrl" placeholder="https://xxxx.supabase.co" style="width:100%;margin-top:5px;background:#0a1326;color:var(--text);border:1px solid var(--panel-border);border-radius:9px;padding:10px 12px;font-size:13.5px;" />
+      <input id="cloudUrl" placeholder="https://xxxx.supabase.co" autocomplete="off" style="width:100%;margin-top:5px;background:#0a1326;color:var(--text);border:1px solid var(--panel-border);border-radius:9px;padding:10px 12px;font-size:13.5px;" />
     </div>
     <div style="margin-bottom:6px;">
       <label style="font-size:12px;color:var(--muted);">anon public key（公开密钥，可安全放入网页）</label>
-      <input id="cloudKey" placeholder="eyJhbGciOi..." style="width:100%;margin-top:5px;background:#0a1326;color:var(--text);border:1px solid var(--panel-border);border-radius:9px;padding:10px 12px;font-size:13.5px;" />
+      <input id="cloudKey" placeholder="eyJhbGciOi..." autocomplete="off" style="width:100%;margin-top:5px;background:#0a1326;color:var(--text);border:1px solid var(--panel-border);border-radius:9px;padding:10px 12px;font-size:13.5px;" />
     </div>
     <div style="display:flex;gap:10px;margin-top:18px;">
       <button class="action primary" style="flex:1;" onclick="connectCloud()">🔗 连接并同步</button>
@@ -457,7 +495,7 @@
     </p>
     <div style="margin-bottom:6px;">
       <label style="font-size:12px;color:var(--muted);">管理密码</label>
-      <input id="clearPwd" type="password" placeholder="请输入密码" style="width:100%;margin-top:5px;background:#0a1326;color:var(--text);border:1px solid var(--panel-border);border-radius:9px;padding:10px 12px;font-size:14px;letter-spacing:3px;" onkeydown="if(event.key==='Enter')confirmClearToday()" />
+      <input id="clearPwd" type="password" placeholder="请输入密码" autocomplete="new-password" style="width:100%;margin-top:5px;background:#0a1326;color:var(--text);border:1px solid var(--panel-border);border-radius:9px;padding:10px 12px;font-size:14px;letter-spacing:3px;" onkeydown="if(event.key==='Enter')confirmClearToday()" />
     </div>
     <div id="clearErr" style="font-size:12.5px;color:#ff6b6b;min-height:16px;margin:6px 0;"></div>
     <div style="display:flex;gap:10px;margin-top:8px;">
@@ -884,9 +922,9 @@ function renderHome(){
       const { price, hours } = mahjongParts(order);
       const priceOpts = cfg.sub.map(s=>`<option value="${s}" ${s===price?'selected':''}>${s}元/小时</option>`).join('');
       let hourOpts=''; for(let i=1;i<=24;i++) hourOpts+=`<option value="${i}" ${i===hours?'selected':''}>${i} 小时</option>`;
-      subHtml = `<div class="sub-inline"><select onchange="updateMahjong('${order.id}','price',this.value)">${priceOpts}</select><select onchange="updateMahjong('${order.id}','hours',this.value)">${hourOpts}</select></div>`;
+      subHtml = `<div class="sub-inline"><select autocomplete="off" onchange="updateMahjong('${order.id}','price',this.value)">${priceOpts}</select><select autocomplete="off" onchange="updateMahjong('${order.id}','hours',this.value)">${hourOpts}</select></div>`;
     }else if(['juice','goldpig'].includes(order.type)){
-      subHtml = `<div class="sub-inline"><select onchange="updateOrder('${order.id}','subtype',this.value)">${subtypeOptions(order)}</select></div>`;
+      subHtml = `<div class="sub-inline"><select autocomplete="off" onchange="updateOrder('${order.id}','subtype',this.value)">${subtypeOptions(order)}</select></div>`;
     }
 
     // 桌号/包厢单元格：外卖固定「外卖订单N」；麻将为「麻将房」；金猪为「金猪」；
@@ -901,7 +939,7 @@ function renderHome(){
       const { hours } = mahjongParts(order);
       roomCell = `<span class="badge mahjong">🀄 麻将房 ${hours}小时</span>`;
     }else{
-      roomCell = `<select onchange="updateOrder('${order.id}','room',this.value)">${roomOptions(order.room)}</select>`;
+      roomCell = `<select autocomplete="off" onchange="updateOrder('${order.id}','room',this.value)">${roomOptions(order.room)}</select>`;
     }
 
     const namedCount = (order.commissions[0].name?1:0)+(order.commissions[1].name?1:0);
@@ -913,17 +951,17 @@ function renderHome(){
       <td data-label="序号">${localIdx+1}</td>
       <td class="type-cell" data-label="类型">
         <div class="type-wrap">
-          <select onchange="updateOrder('${order.id}','type',this.value)">${typeOptions(order.type)}</select>
+          <select autocomplete="off" onchange="updateOrder('${order.id}','type',this.value)">${typeOptions(order.type)}</select>
           ${subHtml}
         </div>
       </td>
       <td data-label="桌号/包厢">${roomCell}</td>
-      <td data-label="客户姓名"><input type="text" placeholder="选填" value="${escapeAttr(order.customer)}" onchange="updateOrder('${order.id}','customer',this.value)" /></td>
-      <td data-label="消费金额"><input type="number" min="0" step="0.01" value="${order.amount?order.amount:''}" ${amountDisabled} oninput="updateOrder('${order.id}','amount',this.value)" /></td>
-      <td data-label="员工1"><select onchange="updateOrder('${order.id}','emp_0',this.value)">${employeeOptions(order.commissions[0].name)}</select></td>
-      <td data-label="提成1"><input type="number" min="0" step="0.01" value="${order.commissions[0].amount}" data-role="amt0" onchange="updateOrder('${order.id}','amt_0',this.value)" /></td>
-      <td data-label="员工2"><select onchange="updateOrder('${order.id}','emp_1',this.value)" ${emp2Disabled?'disabled':''} ${emp2Disabled?'':'style="border-color:var(--purple);"'}>${employeeOptions(order.commissions[1].name)}</select></td>
-      <td data-label="提成2"><input type="number" min="0" step="0.01" value="${order.commissions[1].amount}" ${emp2Disabled?'disabled':''} data-role="amt1" onchange="updateOrder('${order.id}','amt_1',this.value)" /></td>
+      <td data-label="客户姓名"><input type="text" autocomplete="off" placeholder="选填" value="${escapeAttr(order.customer)}" onchange="updateOrder('${order.id}','customer',this.value)" /></td>
+      <td data-label="消费金额"><input type="number" autocomplete="off" min="0" step="0.01" value="${order.amount?order.amount:''}" ${amountDisabled} oninput="updateOrder('${order.id}','amount',this.value)" /></td>
+      <td data-label="员工1"><select autocomplete="off" onchange="updateOrder('${order.id}','emp_0',this.value)">${employeeOptions(order.commissions[0].name)}</select></td>
+      <td data-label="提成1"><input type="number" autocomplete="off" min="0" step="0.01" value="${order.commissions[0].amount}" data-role="amt0" onchange="updateOrder('${order.id}','amt_0',this.value)" /></td>
+      <td data-label="员工2"><select autocomplete="off" onchange="updateOrder('${order.id}','emp_1',this.value)" ${emp2Disabled?'disabled':''} ${emp2Disabled?'':'style="border-color:var(--purple);"'}>${employeeOptions(order.commissions[1].name)}</select></td>
+      <td data-label="提成2"><input type="number" autocomplete="off" min="0" step="0.01" value="${order.commissions[1].amount}" ${emp2Disabled?'disabled':''} data-role="amt1" onchange="updateOrder('${order.id}','amt_1',this.value)" /></td>
       <td data-label="人数" style="text-align:right;"><span class="people-badge" data-role="people">${namedCount||1}</span></td>
       <td data-label="操作"><button class="del-btn" onclick="deleteOrder('${order.id}')">删除</button></td>
     `;
@@ -1221,15 +1259,53 @@ function wmoEmoji(code){
   return '🌡️';
 }
 function loadWeather(){
-  // 默认广州（熹宴粤菜酒楼），失败则回退
-  const url='https://api.open-meteo.com/v1/forecast?latitude=23.1291&longitude=113.2644&current_weather=true';
+  // 深圳（用户所在城市），失败则回退
+  const url='https://api.open-meteo.com/v1/forecast?latitude=22.5431&longitude=114.0579&current_weather=true';
   fetch(url).then(r=>r.json()).then(d=>{
     if(d&&d.current_weather){
       $('weatherIco').textContent = wmoEmoji(d.current_weather.weathercode);
-      $('weather').textContent = '广州 '+d.current_weather.temperature+'°C';
+      $('weather').textContent = '深圳 '+d.current_weather.temperature+'°C';
     }else throw new Error('no data');
-  }).catch(()=>{ $('weatherIco').textContent='🌤️'; $('weather').textContent='广州 26°C'; });
+  }).catch(()=>{ $('weatherIco').textContent='🌤️'; $('weather').textContent='深圳 26°C'; });
 }
+
+/* ===================== LED 牛马鸡血弹幕 ===================== */
+const LED_TEXTS = [
+  "干饭不积极，思想有问题；搞钱不主动，月底喝西北风。",
+  "今日不努力，明日变咸鱼；今日多卖单，明天就上岸。",
+  "上班像上坟？不，我们是在给自己的宝马攒轮胎。",
+  "加油，你是最会搞钱的显眼包！",
+  "别人都在假装颓废，你别上当，悄悄卷起来。",
+  "月入过万不是梦，先从这一单开始冲！",
+  "生活不止眼前的苟且，还有提成和绩效。",
+  "虽然上班像牛马，但发工资那天你就是草原上的汗血宝马。",
+  "躺平是理想，搞钱是现实；成年人不做选择，边搞钱边理想。",
+  "每一单都是通往提前退休的台阶，踩稳了！",
+  "客户虐我千百遍，我待客户如初恋；提成到账那一瞬，初恋算个屁。",
+  "不要在该奋斗的年纪选择摸鱼，除非你想在摸鱼的时候被生活煎。",
+  "努力不一定暴富，但不努力一定很舒服——舒服地穷着。",
+  "今日提成+1，离人生赢家又近 0.0001%。",
+  "你可以emo，但不能一直emo；你可以休息，但不能一直休息。",
+  "打工人的快乐很简单：单多、钱多、老板少啰嗦。",
+  "与其抱怨黑暗，不如多接一单照亮工资卡。",
+  "只要干不死，就往死里干；干完这一单，还有下一单。",
+  "别问累不累，问问钱包肥不肥。",
+  "生活给我压力，我还生活奇迹；这一单，我先冲了！"
+];
+function refreshLedText(){
+  const el = $('ledText');
+  if(!el) return;
+  // 随机一条，尽量不和当前重复
+  let next;
+  do{ next = LED_TEXTS[Math.floor(Math.random()*LED_TEXTS.length)]; }
+  while(LED_TEXTS.length>1 && el.textContent === next);
+  el.textContent = '▶ ' + next + ' ◀';
+  // 重置动画，让切换时从头滚动
+  el.style.animation = 'none';
+  el.offsetHeight; // 触发重排
+  el.style.animation = '';
+}
+setInterval(refreshLedText, 20000);
 
 /* ===================== 示例数据（已停用，改为默认 10 条空白待选行） ===================== */
 
@@ -1252,6 +1328,7 @@ function init(){
 
   tickClock(); setInterval(tickClock,1000);
   loadWeather();
+  refreshLedText();
 }
 init();
 </script>
